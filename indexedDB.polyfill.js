@@ -575,7 +575,7 @@
       sqlTx.executeSql("CREATE TABLE [" + name + "] (id INTEGER PRIMARY KEY AUTOINCREMENT, " +
         "key BLOB UNIQUE, value BLOB)", null, null, errorCallback);
 
-      sqlTx.executeSql("CREATE INDEX INDEX_" + name + "_key ON [" + name + "] (key)", null, null, errorCallback);
+      sqlTx.executeSql("CREATE INDEX [INDEX_" + name + "_key] ON [" + name + "] (key)", null, null, errorCallback);
 
       sqlTx.executeSql("INSERT INTO " + indexedDB.SCHEMA_TABLE +
         " (type, name, keyPath, autoInc) VALUES ('table', ?, ?, ?)",
@@ -1397,10 +1397,10 @@
     };
     me.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
       var indexTable = util.indexTable(me.name, name);
-      sqlTx.executeSql("CREATE TABLE " + indexTable + " (recordId INTEGER, key BLOB" +
+      sqlTx.executeSql("CREATE TABLE [" + indexTable + "] (recordId INTEGER, key BLOB" +
         (unique ? " UNIQUE" : "") + ", primaryKey BLOB)", null, null, errorCallback);
 
-      sqlTx.executeSql("CREATE INDEX INDEX_" + indexTable + "_key ON [" + indexTable + "] (key)",
+      sqlTx.executeSql("CREATE INDEX [INDEX_" + indexTable + "_key] ON [" + indexTable + "] (key)",
         null, null, errorCallback);
 
       sqlTx.executeSql("INSERT INTO " + indexedDB.SCHEMA_TABLE +
@@ -1918,7 +1918,7 @@
           if (callback) callback(new Transaction(tx), resultSet);
         },
         function (tx, error) {
-          console.error("[SQL Error]: ", error);
+          console.error("[SQL Error]: ", error, sql);
           if (errorCallback) errorCallback(new Transaction(tx), wrapSqlError(error));
         });
     }

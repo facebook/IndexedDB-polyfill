@@ -421,10 +421,10 @@ if (window.indexedDB.polyfill)
       };
       me.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
         var indexTable = util.indexTable(me.name, name);
-        sqlTx.executeSql("CREATE TABLE " + indexTable + " (recordId INTEGER, key BLOB" +
+        sqlTx.executeSql("CREATE TABLE [" + indexTable + "] (recordId INTEGER, key BLOB" +
           (unique ? " UNIQUE" : "") + ", primaryKey BLOB)", null, null, errorCallback);
 
-        sqlTx.executeSql("CREATE INDEX INDEX_" + indexTable + "_key ON [" + indexTable + "] (key)",
+        sqlTx.executeSql("CREATE INDEX [INDEX_" + indexTable + "_key] ON [" + indexTable + "] (key)",
           null, null, errorCallback);
 
         sqlTx.executeSql("INSERT INTO " + indexedDB.SCHEMA_TABLE +

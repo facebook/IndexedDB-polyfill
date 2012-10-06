@@ -143,7 +143,7 @@ if (window.indexedDB.polyfill)
         sqlTx.executeSql("CREATE TABLE [" + name + "] (id INTEGER PRIMARY KEY AUTOINCREMENT, " +
           "key BLOB UNIQUE, value BLOB)", null, null, errorCallback);
 
-        sqlTx.executeSql("CREATE INDEX INDEX_" + name + "_key ON [" + name + "] (key)", null, null, errorCallback);
+        sqlTx.executeSql("CREATE INDEX [INDEX_" + name + "_key] ON [" + name + "] (key)", null, null, errorCallback);
 
         sqlTx.executeSql("INSERT INTO " + indexedDB.SCHEMA_TABLE +
           " (type, name, keyPath, autoInc) VALUES ('table', ?, ?, ?)",
