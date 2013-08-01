@@ -545,7 +545,7 @@
             }
             objectStore.indexNames.push(item.name);
             objectStore._indexes[item.name] = new util.IDBIndex(objectStore,
-              item.name, item.keyPath, item.unique, item.multiEntry)
+              item.name, w_JSON.parse(item.keyPath), item.unique, item.multiEntry)
           }
         }
         if (successCallback) successCallback();
