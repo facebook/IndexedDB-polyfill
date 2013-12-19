@@ -1855,8 +1855,6 @@
   var DEFAULT_DB_SIZE = 5 * 1024 * 1024;
 
   /**
-   * ADDED BY POLOPOLY (2013-12-18):
-   *
    * Since Safari (both Mobile and Desktop version) doesn't seem to perform GC on native WebSQL
    * database objects, we cache them ourselves here. Otherwise you will run into some internal
    * limit for open connectons / file locks in either Safari or SQLite.
