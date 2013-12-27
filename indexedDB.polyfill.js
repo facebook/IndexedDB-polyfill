@@ -17,8 +17,352 @@
 /* Compiled File */
 
 (function (window, undefined) {
+  /* sca */
+
+  var idbModules = {};
+
+  'use strict';
+  (function (idbModules) {
+    /**
+     * Implementation of the Structured Cloning Algorithm.  Supports the
+     * following object types:
+     * - Blob
+     * - Boolean
+     * - Date object
+     * - File object (deserialized as Blob object).
+     * - Number object
+     * - RegExp object
+     * - String object
+     * This is accomplished by doing the following:
+     * 1) Using the cycle/decycle functions from:
+     *    https://github.com/douglascrockford/JSON-js/blob/master/cycle.js
+     * 2) Serializing/deserializing objects to/from string that don't work with
+     *    JSON.stringify and JSON.parse by using object specific logic (eg use
+     *    the FileReader API to convert a Blob or File object to a data URL.
+     * 3) JSON.stringify and JSON.parse do the final conversion to/from string.
+     */
+    var Sca = (function () {
+      return {
+        decycle: function (object, callback) {
+          //From: https://github.com/douglascrockford/JSON-js/blob/master/cycle.js
+          // Contains additional logic to convert the following object types to string
+          // so that they can properly be encoded using JSON.stringify:
+          //  *Boolean
+          //  *Date
+          //  *File
+          //  *Blob
+          //  *Number
+          //  *Regex
+          // Make a deep copy of an object or array, assuring that there is at most
+          // one instance of each object or array in the resulting structure. The
+          // duplicate references (which might be forming cycles) are replaced with
+          // an object of the form
+          //      {$ref: PATH}
+          // where the PATH is a JSONPath string that locates the first occurance.
+          // So,
+          //      var a = [];
+          //      a[0] = a;
+          //      return JSON.stringify(JSON.decycle(a));
+          // produces the string '[{"$ref":"$"}]'.
+
+          // JSONPath is used to locate the unique object. $ indicates the top level of
+          // the object or array. [NUMBER] or [STRING] indicates a child member or
+          // property.
+
+          var objects = [], // Keep a reference to each unique object or array
+            paths = [], // Keep the path to each unique object or array
+            queuedObjects = [],
+            returnCallback = callback;
+
+          /**
+           * Check the queue to see if all objects have been processed.
+           * if they have, call the callback with the converted object.
+           */
+          function checkForCompletion() {
+            if (queuedObjects.length === 0) {
+              returnCallback(derezObj);
+            }
+          }
+
+          /**
+           * Convert a blob to a data URL.
+           * @param {Blob} blob to convert.
+           * @param {String} path of blob in object being encoded.
+           */
+          function readBlobAsDataURL(blob, path) {
+            var reader = new FileReader();
+            reader.onloadend = function (loadedEvent) {
+              var dataURL = loadedEvent.target.result;
+              var blobtype = 'blob';
+              if (blob instanceof File) {
+                //blobtype = 'file';
+              }
+              updateEncodedBlob(dataURL, path, blobtype);
+            };
+            reader.readAsDataURL(blob);
+          }
+
+          /**
+           * Async handler to update a blob object to a data URL for encoding.
+           * @param {String} dataURL
+           * @param {String} path
+           * @param {String} blobtype - file if the blob is a file; blob otherwise
+           */
+          function updateEncodedBlob(dataURL, path, blobtype) {
+            var encoded = queuedObjects.indexOf(path);
+            path = path.replace('$', 'derezObj');
+            eval(path + '.$enc="' + dataURL + '"');
+            eval(path + '.$type="' + blobtype + '"');
+            queuedObjects.splice(encoded, 1);
+            checkForCompletion();
+          }
+
+          function derez(value, path) {
+
+            // The derez recurses through the object, producing the deep copy.
+
+            var i, // The loop counter
+              name, // Property name
+              nu; // The new object or array
+
+            // typeof null === 'object', so go on if this value is really an object but not
+            // one of the weird builtin objects.
+
+            if (typeof value === 'object' && value !== null && !(value instanceof Boolean) && !(value instanceof Date) && !(value instanceof Number) && !(value instanceof RegExp) && !(value instanceof Blob) && !(value instanceof String)) {
+
+              // If the value is an object or array, look to see if we have already
+              // encountered it. If so, return a $ref/path object. This is a hard way,
+              // linear search that will get slower as the number of unique objects grows.
+
+              for (i = 0; i < objects.length; i += 1) {
+                if (objects[i] === value) {
+                  return {
+                    $ref: paths[i]
+                  };
+                }
+              }
+
+              // Otherwise, accumulate the unique value and its path.
+
+              objects.push(value);
+              paths.push(path);
+
+              // If it is an array, replicate the array.
+
+              if (Object.prototype.toString.apply(value) === '[object Array]') {
+                nu = [];
+                for (i = 0; i < value.length; i += 1) {
+                  nu[i] = derez(value[i], path + '[' + i + ']');
+                }
+              } else {
+                // If it is an object, replicate the object.
+                nu = {};
+                for (name in value) {
+                  if (Object.prototype.hasOwnProperty.call(value, name)) {
+                    nu[name] = derez(value[name],
+                      path + '[' + JSON.stringify(name) + ']');
+                  }
+                }
+              }
+
+              return nu;
+            } else if (value instanceof Blob) {
+              //Queue blob for conversion
+              queuedObjects.push(path);
+              readBlobAsDataURL(value, path);
+            } else if (value instanceof Boolean) {
+              value = {
+                '$type': 'bool',
+                '$enc': value.toString()
+              };
+            } else if (value instanceof Date) {
+              value = {
+                '$type': 'date',
+                '$enc': value.getTime()
+              };
+            } else if (value instanceof Number) {
+              value = {
+                '$type': 'num',
+                '$enc': value.toString()
+              };
+            } else if (value instanceof RegExp) {
+              value = {
+                '$type': 'regex',
+                '$enc': value.toString()
+              };
+            }
+            return value;
+          }
+          var derezObj = derez(object, '$');
+          checkForCompletion();
+        },
+
+        retrocycle: function retrocycle($) {
+          //From: https://github.com/douglascrockford/JSON-js/blob/master/cycle.js
+          // Contains additional logic to convert strings to the following object types 
+          // so that they can properly be decoded:
+          //  *Boolean
+          //  *Date
+          //  *File
+          //  *Blob
+          //  *Number
+          //  *Regex
+          // Restore an object that was reduced by decycle. Members whose values are
+          // objects of the form
+          //      {$ref: PATH}
+          // are replaced with references to the value found by the PATH. This will
+          // restore cycles. The object will be mutated.
+
+          // The eval function is used to locate the values described by a PATH. The
+          // root object is kept in a $ variable. A regular expression is used to
+          // assure that the PATH is extremely well formed. The regexp contains nested
+          // * quantifiers. That has been known to have extremely bad performance
+          // problems on some browsers for very long strings. A PATH is expected to be
+          // reasonably short. A PATH is allowed to belong to a very restricted subset of
+          // Goessner's JSONPath.
+
+          // So,
+          //      var s = '[{"$ref":"$"}]';
+          //      return JSON.retrocycle(JSON.parse(s));
+          // produces an array containing a single element which is the array itself.
+
+          var px = /^\$(?:\[(?:\d+|\"(?:[^\\\"\u0000-\u001f]|\\([\\\"\/bfnrt]|u[0-9a-zA-Z]{4}))*\")\])*$/;
+
+          /**
+           * Converts the specified data URL to a Blob object
+           * @param {String} dataURL to convert to a Blob
+           * @returns {Blob} the converted Blob object
+           */
+          function dataURLToBlob(dataURL) {
+            var BASE64_MARKER = ';base64,',
+              contentType,
+              parts,
+              raw;
+            if (dataURL.indexOf(BASE64_MARKER) === -1) {
+              parts = dataURL.split(',');
+              contentType = parts[0].split(':')[1];
+              raw = parts[1];
+
+              return new Blob([raw], {
+                type: contentType
+              });
+            }
+
+            parts = dataURL.split(BASE64_MARKER);
+            contentType = parts[0].split(':')[1];
+            raw = window.atob(parts[1]);
+            var rawLength = raw.length;
+            var uInt8Array = new Uint8Array(rawLength);
+
+            for (var i = 0; i < rawLength; ++i) {
+              uInt8Array[i] = raw.charCodeAt(i);
+            }
+            return new Blob([uInt8Array.buffer], {
+              type: contentType
+            });
+          }
+
+          function rez(value) {
+            // The rez function walks recursively through the object looking for $ref
+            // properties. When it finds one that has a value that is a path, then it
+            // replaces the $ref object with a reference to the value that is found by
+            // the path.
+
+            var i, item, name, path;
+
+            if (value && typeof value === 'object') {
+              if (Object.prototype.toString.apply(value) === '[object Array]') {
+                for (i = 0; i < value.length; i += 1) {
+                  item = value[i];
+                  if (item && typeof item === 'object') {
+                    path = item.$ref;
+                    if (typeof path === 'string' && px.test(path)) {
+                      value[i] = eval(path);
+                    } else {
+                      value[i] = rez(item);
+                    }
+                  }
+                }
+              } else {
+                if (value.$type !== undefined) {
+                  switch (value.$type) {
+                  case 'blob':
+                  case 'file':
+                    value = dataURLToBlob(value.$enc);
+                    break;
+                  case 'bool':
+                    value = Boolean(value.$enc === 'true');
+                    break;
+                  case 'date':
+                    value = new Date(value.$enc);
+                    break;
+                  case 'num':
+                    value = Number(value.$enc);
+                    break;
+                  case 'regex':
+                    value = eval(value.$enc);
+                    break;
+                  }
+                } else {
+                  for (name in value) {
+                    if (typeof value[name] === 'object') {
+                      item = value[name];
+                      if (item) {
+                        path = item.$ref;
+                        if (typeof path === 'string' && px.test(path)) {
+                          value[name] = eval(path);
+                        } else {
+                          value[name] = rez(item);
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            return value;
+          }
+          rez($);
+          return $;
+
+        },
+
+        /**
+         * Encode the specified object as a string.  Because of the asynchronus
+         * conversion of Blob/File to string, the encode function requires
+         * a callback
+         * @param {Object} val the value to convert.
+         * @param {function} callback the function to call once conversion is
+         * complete.  The callback gets called with the converted value.
+         */
+        "encode": function (val, callback) {
+          function finishEncode(val) {
+            callback(JSON.stringify(val));
+          }
+          this.decycle(val, finishEncode);
+        },
+
+        /**
+         * Deserialize the specified string to an object
+         * @param {String} val the serialized string
+         * @returns {Object} the deserialized object
+         */
+        "decode": function (val) {
+          var decodedValue = this.retrocycle(JSON.parse(val));
+          return decodedValue;
+        }
+      };
+    }());
+    idbModules.Sca = Sca;
+  }(idbModules));
+
+
+  /* indexedDB.init */
+
   var indexedDB = window.indexedDB = window.indexedDB || window.mozIndexedDB ||
-    window.webkitIndexedDB || window.msIndexedDB || { polyfill : true };
+    window.webkitIndexedDB || window.msIndexedDB || {
+      polyfill: true
+  };
 
 
   if (!indexedDB.polyfill) return;
@@ -33,7 +377,7 @@
   //indexedDB.CURSOR_CHUNK_SIZE = 10;
 
   // Data types
-  indexedDB.DOMStringList = function () { };
+  indexedDB.DOMStringList = function () {};
   indexedDB.DOMStringList.prototype = [];
   indexedDB.DOMStringList.constructor = indexedDB.DOMStringList;
   indexedDB.DOMStringList.prototype.contains = function (str) {
@@ -41,7 +385,7 @@
   };
 
   // Util
-  var util = indexedDB.util = new (function () {
+  var util = indexedDB.util = new(function () {
     this.async = function (fn, async) {
       if (async == null || async) w_setTimeout(fn, 0);
       else fn();
@@ -49,19 +393,19 @@
 
     this.error = function (name, message, innerError) {
       return {
-        name : name,
-        message : message,
-        inner : innerError
+        name: name,
+        message: message,
+        inner: innerError
       }
     };
 
     this.event = function (type, target) {
       return {
-        type : type,
-        target : target,
-        currentTarget : target,
-        preventDefault : function () { },
-        stopPropagation : function () { }
+        type: type,
+        target: target,
+        currentTarget: target,
+        preventDefault: function () {},
+        stopPropagation: function () {}
       };
     };
 
@@ -117,8 +461,7 @@
         for (var i = 0; i < keyPath.length; i++) {
           key.push(this.extractKeyFromValue(keyPath[i], value));
         }
-      }
-      else {
+      } else {
         if (keyPath === "") return value;
 
         key = value;
@@ -162,22 +505,21 @@
       this.target = this.currentTarget = target;
       this.oldVersion = oldVersion;
       this.newVersion = newVersion;
-    };
+  };
 
-  var IDBDatabaseException = window.IDBDatabaseException = indexedDB.util.IDBDatabaseException =
-  {
-    ABORT_ERR : 8,
-    CONSTRAINT_ERR : 4,
-    DATA_ERR : 5,
-    NON_TRANSIENT_ERR : 2,
-    NOT_ALLOWED_ERR : 6,
-    NOT_FOUND_ERR : 3,
-    QUOTA_ERR : 11,
-    READ_ONLY_ERR : 9,
-    TIMEOUT_ERR : 10,
-    TRANSACTION_INACTIVE_ERR : 7,
-    UNKNOWN_ERR : 1,
-    VERSION_ERR : 12
+  var IDBDatabaseException = window.IDBDatabaseException = indexedDB.util.IDBDatabaseException = {
+    ABORT_ERR: 8,
+    CONSTRAINT_ERR: 4,
+    DATA_ERR: 5,
+    NON_TRANSIENT_ERR: 2,
+    NOT_ALLOWED_ERR: 6,
+    NOT_FOUND_ERR: 3,
+    QUOTA_ERR: 11,
+    READ_ONLY_ERR: 9,
+    TIMEOUT_ERR: 10,
+    TRANSACTION_INACTIVE_ERR: 7,
+    UNKNOWN_ERR: 1,
+    VERSION_ERR: 12
   };
 
 
@@ -186,10 +528,11 @@
 
 
   /* IDBCursor */
+
   var IDBCursor = util.IDBCursor = window.IDBCursor = function (source, direction, request) {
     this.source = source;
     this.direction = direction || IDBCursor.NEXT;
-    this.key = null;        // position
+    this.key = null; // position
     this.primaryKey = null; // effective key
 
     this._request = request;
@@ -208,16 +551,17 @@
     }
     var request = new util.IDBRequest(this);
     var me = this;
-    objectStore.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
-      objectStore._insertOrReplaceRecord(
-        {
-          request : request,
-          sqlTx : sqlTx,
-          nextRequestCallback : nextRequestCallback,
-          noOverwrite : false,
-          value : value,
-          encodedKey : me._effectiveKeyEncoded
+    idbModules.Sca.encode(value, function (encodedValue) {
+      objectStore.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
+        objectStore._insertOrReplaceRecord({
+          request: request,
+          sqlTx: sqlTx,
+          nextRequestCallback: nextRequestCallback,
+          noOverwrite: false,
+          value: encodedValue,
+          encodedKey: me._effectiveKeyEncoded
         });
+      });
     });
     return request;
   };
@@ -229,7 +573,8 @@
     advanceOrContinue(this, count, null);
   };
 
-  IDBCursor.prototype.continue = function (key) {
+  IDBCursor.prototype.
+  continue = function (key) {
     advanceOrContinue(this, 1, key);
   };
 
@@ -269,20 +614,17 @@
         if ((isSourceIndex && key > position) || key >= position) throw util.error("DataError");
         filter.upper = key;
         filter.upperOpen = false;
-      }
-      else {
+      } else {
         if ((isSourceIndex && key < position) || key <= position) throw util.error("DataError");
         filter.lower = key;
         filter.lowerOpen = false;
       }
-    }
-    else if (position != null) {
+    } else if (position != null) {
       var open = !isSourceIndex || noDuplicate;
       if (isDesc(me)) {
         filter.upper = position;
         filter.upperOpen = open;
-      }
-      else {
+      } else {
         filter.lower = position;
         filter.lowerOpen = open;
       }
@@ -318,12 +660,11 @@
             me.key = me.primaryKey = me._effectiveKeyEncoded = undefined;
             if (typeof me.value !== "undefined") me.value = undefined;
             request.result = null;
-          }
-          else {
+          } else {
             var found = results.rows.item(filter.count - 1);
             me._effectiveKeyEncoded = found.key;
             me.key = me.primaryKey = util.decodeKey(found.key);
-            if (typeof me.value !== "undefined") me.value = w_JSON.parse(found.value);
+            if (typeof me.value !== "undefined") me.value = idbModules.Sca.decode(found.value);
             me._gotValue = true;
             request.result = me;
           }
@@ -346,22 +687,23 @@
       var objectStoreName = me.source.objectStore.name;
       var tableName = util.indexTable(objectStoreName, me.source.name);
       var sql = ["SELECT hex(i.key) 'key', hex(i.primaryKey) 'primaryKey'" + (withValue ? ", t.value" : ""),
-        "FROM [" + tableName + "] as i"];
+        "FROM [" + tableName + "] as i"
+      ];
 
       if (withValue) {
         sql.push("LEFT JOIN [" + objectStoreName + "] as t ON t.Id = i.recordId");
       }
-      var where = [], args = [], encoded;
+      var where = [],
+        args = [],
+        encoded;
       if (filter.lower != null) {
         encoded = util.encodeKey(filter.lower);
         if (filter.lowerOpen) {
           where.push("(i.key > X'" + encoded + "')");
-        }
-        else {
+        } else {
           if (me._effectiveKeyEncoded == null || desc) {
             where.push("(i.key >= X'" + encoded + "')");
-          }
-          else {
+          } else {
             where.push("((i.key > X'" + encoded + "') OR (i.key = X'" + encoded +
               "' AND i.primaryKey > X'" + me._effectiveKeyEncoded + "'))");
           }
@@ -371,12 +713,10 @@
         encoded = util.encodeKey(filter.upper);
         if (filter.upperOpen) {
           where.push("(i.key < X'" + encoded + "')");
-        }
-        else {
+        } else {
           if (me._effectiveKeyEncoded == null || !desc) {
             where.push("(i.key <= X'" + encoded + "')");
-          }
-          else {
+          } else {
             where.push("((i.key < X'" + encoded + "') OR (i.key = X'" + encoded +
               "' AND i.primaryKey < X'" + me._effectiveKeyEncoded + "'))");
           }
@@ -397,13 +737,12 @@
             me.key = me.primaryKey = me._effectiveKeyEncoded = undefined;
             if (typeof me.value !== "undefined") me.value = undefined;
             request.result = null;
-          }
-          else {
+          } else {
             var found = results.rows.item(filter.count - 1);
             me.key = util.decodeKey(found.key);
             me._effectiveKeyEncoded = found.primaryKey;
             me.primaryKey = util.decodeKey(found.primaryKey);
-            if (typeof me.value !== "undefined") me.value = w_JSON.parse(found.value);
+            if (typeof me.value !== "undefined") me.value = idbModules.Sca.decode(found.value);
             me._gotValue = true;
             request.result = me;
           }
@@ -427,8 +766,7 @@
   function getObjectStore(cursor) {
     if (cursor.source instanceof util.IDBObjectStore) {
       return cursor.source;
-    }
-    else if (cursor.source instanceof util.IDBIndex) {
+    } else if (cursor.source instanceof util.IDBIndex) {
       return cursor.source.objectStore;
     }
     return null;
@@ -447,7 +785,9 @@
   IDBCursorWithValue.prototype.constructor = IDBCursorWithValue;
   util.IDBCursorWithValue = window.IDBCursorWithValue = IDBCursorWithValue;
 
+
   /* IDBDatabase */
+
   var IDBDatabase = util.IDBDatabase = window.IDBDatabase = function (name, webdb) {
     this.name = name;
     this.version = null;
@@ -457,7 +797,7 @@
     this.onversionchange = null;
 
     this._webdb = webdb;
-    this._objectStores = null;  // TODO: ObjectStores are specific to IDBTransaction
+    this._objectStores = null; // TODO: ObjectStores are specific to IDBTransaction
     this._closePending = false;
     this._activeTransactionCounter = 0;
     this._closed = false;
@@ -470,7 +810,7 @@
       throw util.error("ConstraintError");
     }
 
-    var params = optionalParameters || { };
+    var params = optionalParameters || {};
     var keyPath = util.validateKeyPath(params.keyPath);
     var autoIncrement = params.autoIncrement && params.autoIncrement != false || false;
 
@@ -496,8 +836,7 @@
     };
     tx._queueOperation(function (sqlTx, nextRequestCallback) {
       sqlTx.executeSql("DROP TABLE [" + name + "]", null, null, errorCallback);
-      sqlTx.executeSql("DELETE FROM " + indexedDB.SCHEMA_TABLE + " WHERE type = 'table' AND name = ?",
-        [name], null, errorCallback);
+      sqlTx.executeSql("DELETE FROM " + indexedDB.SCHEMA_TABLE + " WHERE type = 'table' AND name = ?", [name], null, errorCallback);
 
       nextRequestCallback();
     });
@@ -507,8 +846,7 @@
     // TODO: 4.2.1. throw InvalidStateError if a transaction being creating within transaction callback
     if (storeNames instanceof Array || storeNames == null) {
       if (storeNames.length == 0) throw util.error("InvalidAccessError");
-    }
-    else {
+    } else {
       storeNames = [storeNames.toString()];
     }
     for (var i = 0; i < storeNames.length; i++) {
@@ -528,7 +866,7 @@
     sqlTx.executeSql("SELECT * FROM " + indexedDB.SCHEMA_TABLE +
       " ORDER BY type DESC", null,
       function (sqlTx, resultSet) {
-        me._objectStores = { };
+        me._objectStores = {};
         var item, objectStore;
         for (var i = 0; i < resultSet.rows.length; i++) {
           item = resultSet.rows.item(i);
@@ -537,8 +875,7 @@
             objectStore = new util.IDBObjectStore(item.name, w_JSON.parse(item.keyPath), item.autoInc);
             objectStore._metaId = item.id;
             me._objectStores[item.name] = objectStore;
-          }
-          else if (item.type == "index") {
+          } else if (item.type == "index") {
             for (var name in me._objectStores) {
               objectStore = me._objectStores[name];
               if (objectStore._metaId == item.tableId) break;
@@ -578,8 +915,7 @@
       sqlTx.executeSql("CREATE INDEX INDEX_" + name + "_key ON [" + name + "] (key)", null, null, errorCallback);
 
       sqlTx.executeSql("INSERT INTO " + indexedDB.SCHEMA_TABLE +
-        " (type, name, keyPath, autoInc) VALUES ('table', ?, ?, ?)",
-        [name, w_JSON.stringify(keyPath), autoIncrement ? 1 : 0],
+        " (type, name, keyPath, autoInc) VALUES ('table', ?, ?, ?)", [name, w_JSON.stringify(keyPath), autoIncrement ? 1 : 0],
         function (sqlTx, results) {
           objectStore._metaId = results.insertId;
         },
@@ -598,8 +934,10 @@
     }
   }
 
+
   /* IDBFactory */
-  var origin = { };
+
+  var origin = {};
 
   indexedDB.open = function (name, version) {
     if (arguments.length == 2 && version == undefined) throw util.error("TypeError");
@@ -640,11 +978,9 @@
       function () {
         if (oldVersion < connection.version) {
           runStepsForVersionChangeTransaction(request, connection, oldVersion);
-        }
-        else if (oldVersion == connection.version) {
+        } else if (oldVersion == connection.version) {
           openVersionMatch(request, connection, sqldb);
-        }
-        else {
+        } else {
           util.fireErrorEvent(request, util.error("VersionError"));
         }
       });
@@ -740,8 +1076,7 @@
       if (sqldb.version == "") {
         database.deletePending = false;
         util.fireSuccessEvent(request);
-      }
-      else {
+      } else {
         fireVersionChangeEvent(request, name, parseInt(sqldb.version), null);
         util.wait(function () {
             return database.connections.length == 0;
@@ -772,9 +1107,9 @@
     var db = origin[name];
     if (db == null) {
       db = {
-        name : name,
-        deletePending : false,
-        connections : []    // openDatabases
+        name: name,
+        deletePending: false,
+        connections: [] // openDatabases
       };
       origin[name] = db;
     }
@@ -824,7 +1159,9 @@
       });
   }
 
+
   /* IDBIndex */
+
   var IDBIndex = util.IDBIndex = window.IDBIndex = function (objectStore, name, keyPath, unique, multiEntry) {
     this.objectStore = objectStore;
     this.name = name;
@@ -852,15 +1189,14 @@
       sql.push("[" + me.objectStore.name + "] AS s ON s.id = i.recordId");
       if (encodedKeyOrRange instanceof util.IDBKeyRange) {
         sql.push("WHERE", encodedKeyOrRange._getSqlFilter("i.key"));
-      }
-      else if (encodedKeyOrRange != null) {
+      } else if (encodedKeyOrRange != null) {
         sql.push("WHERE (i.key = X'" + encodedKeyOrRange + "')");
       }
       sql.push("ORDER BY i.key, i.primaryKey LIMIT 1");
       sqlTx.executeSql(sql.join(" "), null,
         function (_, results) {
           util.fireSuccessEvent(request, results.rows.length > 0 ?
-            w_JSON.parse(results.rows.item(0).value) : undefined)
+            idbModules.Sca.decode(results.rows.item(0).value) : undefined)
         },
         function (_, error) {
           util.fireErrorEvent(request, error);
@@ -879,8 +1215,7 @@
       var sql = ["SELECT hex(primaryKey) 'primaryKey' FROM [" + util.indexTable(me) + "]"];
       if (encodedKeyOrRange instanceof util.IDBKeyRange) {
         sql.push("WHERE", encodedKeyOrRange._getSqlFilter());
-      }
-      else if (encodedKeyOrRange != null) {
+      } else if (encodedKeyOrRange != null) {
         sql.push("WHERE (key = X'" + encodedKeyOrRange + "')");
       }
       sql.push("LIMIT 1");
@@ -906,8 +1241,7 @@
       var sql = ["SELECT COUNT(recordId) AS 'count' FROM [" + util.indexTable(me) + "]"];
       if (encodedKeyOrRange instanceof util.IDBKeyRange) {
         sql.push("WHERE", encodedKeyOrRange._getSqlFilter());
-      }
-      else if (encodedKeyOrRange != null) {
+      } else if (encodedKeyOrRange != null) {
         sql.push("WHERE (key = X'" + encodedKeyOrRange + "')");
       }
       sqlTx.executeSql(sql.join(" "), null,
@@ -930,11 +1264,14 @@
     var request = new util.IDBRequest(me);
     var cursor = new cursorType(me, direction, request);
     cursor._range = util.IDBKeyRange._ensureKeyRange(range);
-    cursor.continue();
+    cursor.
+    continue ();
     return request;
   }
 
+
   /* IDBKeyRange */
+
   var IDBKeyRange = util.IDBKeyRange = window.IDBKeyRange = function (lower, upper, lowerOpen, upperOpen) {
     this.lower = lower;
     this.upper = upper;
@@ -974,11 +1311,12 @@
 
   IDBKeyRange.prototype._getSqlFilter = function (keyColumnName) {
     if (keyColumnName == undefined) keyColumnName = "key";
-    var sql = [], hasLower = this.lower != null, hasUpper = this.upper != null;
+    var sql = [],
+      hasLower = this.lower != null,
+      hasUpper = this.upper != null;
     if (this.lower == this.upper) {
       sql.push("(" + keyColumnName + " = X'" + util.encodeKey(this.lower) + "')");
-    }
-    else {
+    } else {
       if (hasLower) {
         sql.push("(X'" + util.encodeKey(this.lower) + "' <" +
           (this.lowerOpen ? "" : "=") + " " + keyColumnName + ")");
@@ -991,7 +1329,9 @@
     return sql.join(" AND ");
   };
 
+
   /* IDBObjectStore */
+
   var IDBObjectStore = util.IDBObjectStore = window.IDBObjectStore = function (name, keyPath, autoIncrement, tx) {
     this.name = name;
     this.keyPath = keyPath;
@@ -1000,7 +1340,7 @@
     this.autoIncrement = autoIncrement == true;
 
     this._metaId = null;
-    this._indexes = { };
+    this._indexes = {};
   };
 
   IDBObjectStore.prototype.put = function (value, key) {
@@ -1017,23 +1357,27 @@
     var validation = validateObjectStoreKey(me.keyPath, me.autoIncrement, value, key);
 
     var request = new util.IDBRequest(me);
-    me.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
-      var context = {
-        request : request,
-        sqlTx : sqlTx,
-        nextRequestCallback : nextRequestCallback,
-        noOverwrite : noOverwrite,
-        value : value,
-        key : validation.key,
-        encodedKey : validation.encodedKey
-      };
-      runStepsForStoringRecord(context);
+    idbModules.Sca.encode(value, function (encodedValue) {
+      me.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
+        var context = {
+          request: request,
+          sqlTx: sqlTx,
+          nextRequestCallback: nextRequestCallback,
+          noOverwrite: noOverwrite,
+          value: value,
+          key: validation.key,
+          encodedKey: validation.encodedKey,
+          encodedValue: encodedValue
+        };
+        runStepsForStoringRecord(context);
+      });
     });
     return request;
   }
 
   function validateObjectStoreKey(keyPath, autoIncrement, value, key) {
-    var key = key, encodedKey;
+    var key = key,
+      encodedKey;
     if (keyPath != null) {
       if (key != null) throw util.error("DataError");
 
@@ -1041,16 +1385,19 @@
     }
     if (key == null) {
       if (!autoIncrement) throw util.error("DataError");
-    }
-    else {
+    } else {
       encodedKey = util.encodeKey(key);
       if (encodedKey === null) throw util.error("DataError");
     }
-    return { key : key, encodedKey : encodedKey };
+    return {
+      key: key,
+      encodedKey: encodedKey
+    };
   }
 
   function runStepsForStoringRecord(context) {
-    var request = context.request, key = context.key;
+    var request = context.request,
+      key = context.key;
     var me = request.source;
     request.readyState = util.IDBRequest.DONE;
     if (me.autoIncrement && (key == null || isPositiveFloat(key))) {
@@ -1074,8 +1421,7 @@
           util.fireErrorEvent(request, error);
           context.nextRequestCallback();
         });
-    }
-    else {
+    } else {
       me._insertOrReplaceRecord(context);
     }
   }
@@ -1092,7 +1438,7 @@
     var attr = null;
     for (var i = 0; i < path.length - 1; i++) {
       attr = path[i];
-      if (value[attr] == null) value[attr] = { };
+      if (value[attr] == null) value[attr] = {};
       value = value[attr];
     }
     value[path[path.length - 1]] = key;
@@ -1102,7 +1448,8 @@
   function storeIndexes(context) {
     var request = context.request;
     var me = context.objectStore;
-    var indexes = [], strKeys = [];
+    var indexes = [],
+      strKeys = [];
     for (var indexName in me._indexes) {
       var index = me._indexes[indexName];
       if (!index._ready) continue;
@@ -1117,8 +1464,7 @@
     if (indexes.length == 0) {
       util.fireSuccessEvent(request, context.key);
       context.nextRequestCallback();
-    }
-    else {
+    } else {
       var lastIndex = indexes.length - 1;
       for (var i = 0; i < indexes.length; i++) {
         storeIndex(context, indexes[i], strKeys[i], i == lastIndex);
@@ -1162,8 +1508,7 @@
         args.push(context.recordId);
       }
       sql.push(select.join(" UNION ALL "))
-    }
-    else {
+    } else {
       sql.push("VALUES (?, X'" + encodedKey + "', X'" + context.encodedKey + "')");
       args.push(context.recordId);
     }
@@ -1207,18 +1552,18 @@
     var request = new util.IDBRequest(this);
     var me = this;
     me.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
-      var where = "", args = [];
+      var where = "",
+        args = [];
       if (encodedKeyOrRange instanceof util.IDBKeyRange) {
         where = "WHERE " + encodedKeyOrRange._getSqlFilter();
-      }
-      else if (encodedKeyOrRange != null) {
+      } else if (encodedKeyOrRange != null) {
         where = "WHERE (key = X'" + encodedKeyOrRange + "')";
       }
 
       sqlTx.executeSql("SELECT [value] FROM [" + me.name + "] " + where + " LIMIT 1", args,
         function (_, results) {
           util.fireSuccessEvent(request, results.rows.length > 0 ?
-            w_JSON.parse(results.rows.item(0).value) : undefined)
+            idbModules.Sca.decode(results.rows.item(0).value) : undefined)
         },
         function (_, error) {
           util.fireErrorEvent(request, error);
@@ -1254,7 +1599,8 @@
     var request = new util.IDBRequest(this);
     var cursor = new util.IDBCursorWithValue(this, direction, request);
     cursor._range = util.IDBKeyRange._ensureKeyRange(range);
-    cursor.continue();
+    cursor.
+    continue ();
     return request;
   };
 
@@ -1264,7 +1610,7 @@
       throw util.error("ConstraintError");
     }
     var keyPath = util.validateKeyPath(keyPath);
-    var params = optionalParameters || { };
+    var params = optionalParameters || {};
     var unique = params.unique && params.unique != false || false;
     var multiEntry = params.multiEntry && params.multiEntry != false || false;
 
@@ -1301,8 +1647,7 @@
     this.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
       sqlTx.executeSql("DROP TABLE " + util.indexTable(me.name, indexName), null, null, errorCallback);
 
-      sqlTx.executeSql("DELETE FROM " + indexedDB.SCHEMA_TABLE + " WHERE type = 'index' AND name = ?",
-        [indexName], null, errorCallback);
+      sqlTx.executeSql("DELETE FROM " + indexedDB.SCHEMA_TABLE + " WHERE type = 'index' AND name = ?", [indexName], null, errorCallback);
 
       nextRequestCallback();
     });
@@ -1313,11 +1658,11 @@
     var request = new util.IDBRequest(this);
     var me = this;
     this.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
-      var where = "", args = [];
+      var where = "",
+        args = [];
       if (encodedKeyOrRange instanceof util.IDBKeyRange) {
         where = "WHERE " + encodedKeyOrRange._getSqlFilter();
-      }
-      else if (encodedKeyOrRange != null) {
+      } else if (encodedKeyOrRange != null) {
         where = "WHERE (key = X'" + encodedKeyOrRange + "')";
       }
       sqlTx.executeSql("SELECT COUNT(id) AS 'count' FROM [" + me.name + "] " + where, args,
@@ -1338,8 +1683,7 @@
     var sql, where;
     if (encodedKeyOrRange instanceof util.IDBKeyRange) {
       where = "WHERE " + encodedKeyOrRange._getSqlFilter();
-    }
-    else {
+    } else {
       where = "WHERE (key = X'" + encodedKeyOrRange + "')";
     }
     for (var indexName in objectStore._indexes) {
@@ -1363,9 +1707,7 @@
         });
     }
     var me = this;
-    var encodedValue = w_JSON.stringify(context.value);
-    context.sqlTx.executeSql("INSERT INTO [" + me.name + "] (key, value) VALUES (X'" + context.encodedKey + "', ?)",
-      [encodedValue],
+    context.sqlTx.executeSql("INSERT INTO [" + me.name + "] (key, value) VALUES (X'" + context.encodedKey + "', ?)", [context.encodedValue],
       function (sqlTx, results) {
         request.result =
           context.objectStore = me;
@@ -1405,8 +1747,7 @@
 
       sqlTx.executeSql("INSERT INTO " + indexedDB.SCHEMA_TABLE +
         " (name, type, keyPath, tableId, [unique], multiEntry) VALUES (?, 'index', ?, " +
-        "(SELECT Id FROM " + indexedDB.SCHEMA_TABLE + " WHERE type = 'table' AND name = ?), ?, ?)",
-        [name, w_JSON.stringify(keyPath), me.name, unique ? 1 : 0, multiEntry ? 1 : 0],
+        "(SELECT Id FROM " + indexedDB.SCHEMA_TABLE + " WHERE type = 'table' AND name = ?), ?, ?)", [name, w_JSON.stringify(keyPath), me.name, unique ? 1 : 0, multiEntry ? 1 : 0],
         null, errorCallback);
 
       sqlTx.executeSql("SELECT id, hex(key) 'key', value FROM [" + me.name + "]", null,
@@ -1414,7 +1755,8 @@
           if (results.rows.length == 0) return;
 
           var sql = ["INSERT INTO [" + util.indexTable(me.name, name) + "]"];
-          var select = [], args = [];
+          var select = [],
+            args = [];
           for (var i = 0; i < results.rows.length; i++) {
             var item = results.rows.item(i);
             var encodedKey = getValidIndexKeyString(index, w_JSON.parse(item.value));
@@ -1425,8 +1767,7 @@
                 select.push("SELECT ?, X'" + encodedKey[j] + "', X'" + item.key + "'");
                 args.push(item.id);
               }
-            }
-            else {
+            } else {
               select.push("SELECT ?, X'" + encodedKey + "', X'" + item.key + "'");
               args.push(item.id);
             }
@@ -1444,7 +1785,9 @@
     return index;
   }
 
+
   /* IDBRequest */
+
   var IDBRequest = util.IDBRequest = window.IDBRequest = function (source) {
     this.result = undefined;
     this.error = null;
@@ -1465,7 +1808,9 @@
   IDBOpenDBRequest.prototype = new IDBRequest();
   IDBOpenDBRequest.prototype.constructor = IDBOpenDBRequest;
 
+
   /* IDBTransaction */
+
   var IDBTransaction = util.IDBTransaction = window.IDBTransaction = function (db, storeNames, mode) {
     this.db = db;
     this.mode = mode;
@@ -1484,12 +1829,16 @@
     if (mode === IDBTransaction.READ_ONLY) txFn = sqldb.readTransaction;
     else if (mode === IDBTransaction.READ_WRITE) txFn = sqldb.transaction;
     else if (mode === IDBTransaction.VERSION_CHANGE) {
-      txFn = function (x, y, z) { sqldb.changeVersion(sqldb.version, db.version, x, y, z); };
+      txFn = function (x, y, z) {
+        sqldb.changeVersion(sqldb.version, db.version, x, y, z);
+      };
     }
 
     var me = this;
     txFn && txFn.call(sqldb,
-      function (sqlTx) { performOperation(me, sqlTx, 0); },
+      function (sqlTx) {
+        performOperation(me, sqlTx, 0);
+      },
       function (sqlError) {
         db.close();
 
@@ -1512,9 +1861,9 @@
       me._active = false;
       me._requests = [];
       /*for (var name in me.db._objectStores)
-       {
-       me.db._objectStores[name].transaction = null;
-       }*/
+         {
+         me.db._objectStores[name].transaction = null;
+         }*/
       return;
     }
     me._requests[operationIndex](sqlTx, function () {
@@ -1528,8 +1877,7 @@
     if (objectStore) {
       objectStore.transaction = this;
       return objectStore;
-    }
-    else {
+    } else {
       throw util.error("NotFoundError");
     }
   };
@@ -1567,8 +1915,10 @@
     if (!me._active) throw new util.error("TransactionInactiveError");
   }
 
-  /* key.js */
-  var ARRAY_TERMINATOR = { };
+
+  /* key */
+
+  var ARRAY_TERMINATOR = {};
   var BYTE_TERMINATOR = 0;
   var TYPE_NUMBER = 1;
   var TYPE_DATE = 2;
@@ -1577,7 +1927,10 @@
   var MAX_TYPE_BYTE_SIZE = 12; // NOTE: Cannot be greater than 255
 
   util.encodeKey = function (key) {
-    var stack = [key], writer = new HexStringWriter(), type = 0, dataType, obj;
+    var stack = [key],
+      writer = new HexStringWriter(),
+      type = 0,
+      dataType, obj;
     while ((obj = stack.pop()) !== undefined) {
       if (type % 4 === 0 && type + TYPE_ARRAY > MAX_TYPE_BYTE_SIZE) {
         writer.write(type);
@@ -1591,30 +1944,24 @@
           var i = obj.length;
           while (i--) stack.push(obj[i]);
           continue;
-        }
-        else {
+        } else {
           writer.write(type);
         }
-      }
-      else if (dataType === "number") {
+      } else if (dataType === "number") {
         type += TYPE_NUMBER;
         writer.write(type);
         encodeNumber(writer, obj);
-      }
-      else if (obj instanceof Date) {
+      } else if (obj instanceof Date) {
         type += TYPE_DATE;
         writer.write(type);
         encodeNumber(writer, obj.valueOf());
-      }
-      else if (dataType === "string") {
+      } else if (dataType === "string") {
         type += TYPE_STRING;
         writer.write(type);
         encodeString(writer, obj);
-      }
-      else if (obj === ARRAY_TERMINATOR) {
+      } else if (obj === ARRAY_TERMINATOR) {
         writer.write(BYTE_TERMINATOR);
-      }
-      else return null;
+      } else return null;
       type = 0;
     }
     return writer.trim().toString();
@@ -1623,7 +1970,8 @@
   util.decodeKey = function (encodedKey) {
     var rootArray = []; // one-element root array that contains the result
     var parentArray = rootArray;
-    var type, arrayStack = [], depth, tmp;
+    var type, arrayStack = [],
+      depth, tmp;
     var reader = new HexStringReader(encodedKey);
     while (reader.read() != null) {
       if (reader.current === 0) // end of array
@@ -1634,8 +1982,7 @@
       if (reader.current === null) {
         return rootArray[0];
       }
-      do
-      {
+      do {
         depth = reader.current / 4 | 0;
         type = reader.current % 4;
         for (var i = 0; i < depth; i++) {
@@ -1646,20 +1993,16 @@
         }
         if (type === 0 && reader.current + TYPE_ARRAY > MAX_TYPE_BYTE_SIZE) {
           reader.read();
-        }
-        else break;
+        } else break;
       } while (true);
 
       if (type === TYPE_NUMBER) {
         parentArray.push(decodeNumber(reader));
-      }
-      else if (type === TYPE_DATE) {
+      } else if (type === TYPE_DATE) {
         parentArray.push(new Date(decodeNumber(reader)));
-      }
-      else if (type === TYPE_STRING) {
+      } else if (type === TYPE_STRING) {
         parentArray.push(decodeString(reader));
-      }
-      else if (type === 0) // empty array case
+      } else if (type === 0) // empty array case
       {
         parentArray = arrayStack.pop();
       }
@@ -1672,11 +2015,13 @@
   var p32 = 0x100000000;
   var p48 = 0x1000000000000;
   var p52 = 0x10000000000000;
-  var pNeg1074 = 5e-324;                      // 2^-1074);
-  var pNeg1022 = 2.2250738585072014e-308;     // 2^-1022
+  var pNeg1074 = 5e-324; // 2^-1074);
+  var pNeg1022 = 2.2250738585072014e-308; // 2^-1022
 
   function ieee754(number) {
-    var s = 0, e = 0, m = 0;
+    var s = 0,
+      e = 0,
+      m = 0;
     if (number !== 0) {
       if (isFinite(number)) {
         if (number < 0) {
@@ -1697,18 +2042,20 @@
           e = p + 1023;
         }
         m = e ? Math.floor((number / Math.pow(2, p) - 1) * p52) : Math.floor(number / pNeg1074);
-      }
-      else {
+      } else {
         e = 0x7FF;
         if (isNaN(number)) {
           m = 2251799813685248; // QNan
-        }
-        else {
+        } else {
           if (number === -Infinity) s = 1;
         }
       }
     }
-    return { sign : s, exponent : e, mantissa : m };
+    return {
+      sign: s,
+      exponent: e,
+      mantissa: m
+    };
   }
 
   function encodeNumber(writer, number) {
@@ -1762,20 +2109,18 @@
 
   function encodeString(writer, string) {
     /* 3 layers:
-     Chars 0         - 7E            are encoded as 0xxxxxxx with 1 added
-     Chars 7F        - (3FFF+7F)     are encoded as 10xxxxxx xxxxxxxx with 7F subtracted
-     Chars (3FFF+80) - FFFF          are encoded as 11xxxxxx xxxxxxxx xx000000
-     */
+       Chars 0         - 7E            are encoded as 0xxxxxxx with 1 added
+       Chars 7F        - (3FFF+7F)     are encoded as 10xxxxxx xxxxxxxx with 7F subtracted
+       Chars (3FFF+80) - FFFF          are encoded as 11xxxxxx xxxxxxxx xx000000
+       */
     for (var i = 0; i < string.length; i++) {
       var code = string.charCodeAt(i);
       if (code <= 0x7E) {
         writer.write(code + 1);
-      }
-      else if (code <= secondLayer) {
+      } else if (code <= secondLayer) {
         code -= 0x7F;
         writer.write(0x80 | code >> 8, code & 0xFF);
-      }
-      else {
+      } else {
         writer.write(0xC0 | code >> 10, code >> 2 | 0xFF, (code | 3) << 6);
       }
     }
@@ -1783,7 +2128,11 @@
   }
 
   function decodeString(reader) {
-    var buffer = [], layer = 0, unicode = 0, count = 0, $byte, tmp;
+    var buffer = [],
+      layer = 0,
+      unicode = 0,
+      count = 0,
+      $byte, tmp;
     while (true) {
       $byte = reader.read();
       if ($byte === 0 || $byte == null) break;
@@ -1792,25 +2141,21 @@
         tmp = $byte >> 6;
         if (tmp < 2) {
           buffer.push(String.fromCharCode($byte - 1));
-        }
-        else // tmp equals 2 or 3
+        } else // tmp equals 2 or 3
         {
           layer = tmp;
           unicode = $byte << 10;
           count++;
         }
-      }
-      else if (layer === 2) {
+      } else if (layer === 2) {
         buffer.push(String.fromCharCode(unicode + $byte + 0x7F));
         layer = unicode = count = 0;
-      }
-      else // layer === 3
+      } else // layer === 3
       {
         if (count === 2) {
           unicode += $byte << 2;
           count++;
-        }
-        else // count === 3
+        } else // count === 3
         {
           buffer.push(String.fromCharCode(unicode | $byte >> 6));
           layer = unicode = count = 0;
@@ -1833,7 +2178,8 @@
   };
 
   var HexStringWriter = function () {
-    var buffer = [], c;
+    var buffer = [],
+      c;
     this.write = function ($byte) {
       for (var i = 0; i < arguments.length; i++) {
         c = arguments[i].toString(16);
@@ -1851,8 +2197,10 @@
     }
   };
 
-  /* webSql.js */
-  var DEFAULT_DB_SIZE = 5 * 1024 * 1024;
+
+  /* webSql */
+
+  var DEFAULT_DB_SIZE = 2 * 1024 * 1024;
 
   util.openDatabase = function (name) {
     return new Database(window.openDatabase(indexedDB.DB_PREFIX + name, "", "IndexedDB " + name, DEFAULT_DB_SIZE));
