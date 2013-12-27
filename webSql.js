@@ -16,7 +16,7 @@
 
 if (window.indexedDB.polyfill)
   (function (window, util, undefined) {
-    var DEFAULT_DB_SIZE = 5 * 1024 * 1024;
+    var DEFAULT_DB_SIZE = 2 * 1024 * 1024;
 
     util.openDatabase = function (name) {
       return new Database(window.openDatabase(indexedDB.DB_PREFIX + name, "", "IndexedDB " + name, DEFAULT_DB_SIZE));
