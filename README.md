@@ -49,7 +49,7 @@ Currently, the project has lack of JavaScript Date Object support when storing a
 
 The software is distributed under [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0.txt)
 
-### 7. Rerencess
+### 7. References
 1. Test suits <http://w3c-test.org/webapps/IndexedDB/>;
 2. Mozilla IndexedDB implementation: <http://hg.mozilla.org/mozilla-central/file/895e12563245/dom/indexedDB/>;
 
@@ -58,3 +58,12 @@ The software is distributed under [Apache License 2.0](http://www.apache.org/lic
 [polyfill-wiki]: http://en.wikipedia.org/wiki/Polyfill
 [2]: http://www.w3.org/TR/IndexedDB/
 [3]: w3c-test.org/webapps/IndexedDB/tests/submissions/
+
+### 8. Build distribuction file
+
+After cloning the repository, to build a dist file follow these steps:
+
+1. run `npm install`
+2. run `grunt`
+3. The dist file will be generated with the name `indexedDB.polyfill.js`
+
