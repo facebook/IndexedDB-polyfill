@@ -1,4 +1,5 @@
-/*jshint globalstrict: true*/
+if (window.indexedDB.polyfill)
+  (function (window, indexedDB, util, undefined) {
 var idbModules = {};
 
 'use strict';
@@ -335,3 +336,5 @@ var idbModules = {};
     }());
     idbModules.Sca = Sca;
 }(idbModules));
+
+}(window, window.indexedDB, window.indexedDB.util));
