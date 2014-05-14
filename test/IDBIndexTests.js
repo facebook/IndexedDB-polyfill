@@ -67,7 +67,7 @@ var IDBIndexTests = new (function () {
   }
 
   function testOpenCursor(db) {
-    expect(6);
+    expect(7);
     var tx = db.transaction([env.people.name]);
     tx.error = util.shouldNotReachHereCallback;
     tx.oncomplete = function (e) {
@@ -77,6 +77,7 @@ var IDBIndexTests = new (function () {
     var people = tx.objectStore(env.people.name);
     var range = IDBKeyRange.bound("n1", "n4", true);
     var request = people.index(env.nameIndex).openCursor(range, IDBCursor.NEXT_NO_DUPLICATE);
+    deepEqual(people.index(env.nameIndex).keyPath, "name", "keyPath should match");
     request.onerror = util.shouldNotReachHereCallback;
     var i = -1, ii = [3, 4, 2];
     request.onsuccess = function (e) {

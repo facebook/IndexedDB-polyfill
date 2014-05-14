@@ -545,7 +545,7 @@
             }
             objectStore.indexNames.push(item.name);
             objectStore._indexes[item.name] = new util.IDBIndex(objectStore,
-              item.name, item.keyPath, item.unique, item.multiEntry)
+              item.name, w_JSON.parse(item.keyPath), item.unique, item.multiEntry)
           }
         }
         if (successCallback) successCallback();
@@ -1854,8 +1854,20 @@
   /* webSql.js */
   var DEFAULT_DB_SIZE = 5 * 1024 * 1024;
 
+  /**
+   * Since Safari (both Mobile and Desktop version) doesn't seem to perform GC on native WebSQL
+   * database objects, we cache them ourselves here. Otherwise you will run into some internal
+   * limit for open connectons / file locks in either Safari or SQLite.
+   */
+
+  var webSQLDatabases = {};
+
   util.openDatabase = function (name) {
-    return new Database(window.openDatabase(indexedDB.DB_PREFIX + name, "", "IndexedDB " + name, DEFAULT_DB_SIZE));
+    if(!webSQLDatabases[name]) {
+      webSQLDatabases[name] = window.openDatabase(indexedDB.DB_PREFIX + name, "", "IndexedDB " + name, DEFAULT_DB_SIZE);
+    }
+
+    return new Database(webSQLDatabases[name]);
   };
 
   var Database_prototype = function (db) {
