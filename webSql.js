@@ -82,7 +82,7 @@ if (window.indexedDB.polyfill)
             if (callback) callback(new Transaction(tx), resultSet);
           },
           function (tx, error) {
-            console.error("[SQL Error]: ", error);
+            console.error("[SQL Error]: ", error, sql);
             if (errorCallback) errorCallback(new Transaction(tx), wrapSqlError(error));
           });
       }
