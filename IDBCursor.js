@@ -38,16 +38,18 @@ if (window.indexedDB.polyfill)
       }
       var request = new util.IDBRequest(this);
       var me = this;
-      objectStore.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
-        objectStore._insertOrReplaceRecord(
-          {
-            request : request,
-            sqlTx : sqlTx,
-            nextRequestCallback : nextRequestCallback,
-            noOverwrite : false,
-            value : value,
-            encodedKey : me._effectiveKeyEncoded
-          });
+      idbModules.Sca.encode(value, function (encodedValue) {
+        objectStore.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
+          objectStore._insertOrReplaceRecord(
+            {
+              request : request,
+              sqlTx : sqlTx,
+              nextRequestCallback : nextRequestCallback,
+              noOverwrite : false,
+              value : encodedValue,
+              encodedKey : me._effectiveKeyEncoded
+            });
+        });        
       });
       return request;
     };
@@ -153,7 +155,7 @@ if (window.indexedDB.polyfill)
               var found = results.rows.item(filter.count - 1);
               me._effectiveKeyEncoded = found.key;
               me.key = me.primaryKey = util.decodeKey(found.key);
-              if (typeof me.value !== "undefined") me.value = w_JSON.parse(found.value);
+              if (typeof me.value !== "undefined") me.value = idbModules.Sca.decode(found.value);
               me._gotValue = true;
               request.result = me;
             }
@@ -233,7 +235,7 @@ if (window.indexedDB.polyfill)
               me.key = util.decodeKey(found.key);
               me._effectiveKeyEncoded = found.primaryKey;
               me.primaryKey = util.decodeKey(found.primaryKey);
-              if (typeof me.value !== "undefined") me.value = w_JSON.parse(found.value);
+              if (typeof me.value !== "undefined") me.value = idbModules.Sca.decode(found.value);
               me._gotValue = true;
               request.result = me;
             }

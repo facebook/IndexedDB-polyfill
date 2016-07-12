@@ -41,17 +41,20 @@ if (window.indexedDB.polyfill)
       var validation = validateObjectStoreKey(me.keyPath, me.autoIncrement, value, key);
 
       var request = new util.IDBRequest(me);
-      me.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
-        var context = {
-          request : request,
-          sqlTx : sqlTx,
-          nextRequestCallback : nextRequestCallback,
-          noOverwrite : noOverwrite,
-          value : value,
-          key : validation.key,
-          encodedKey : validation.encodedKey
-        };
-        runStepsForStoringRecord(context);
+      idbModules.Sca.encode(value, function (encodedValue) {
+        me.transaction._queueOperation(function (sqlTx, nextRequestCallback) {
+          var context = {
+            request : request,
+            sqlTx : sqlTx,
+            nextRequestCallback : nextRequestCallback,
+            noOverwrite : noOverwrite,
+            value : value,
+            key : validation.key,
+            encodedKey : validation.encodedKey,
+            encodedValue: encodedValue
+          };
+          runStepsForStoringRecord(context);        
+        });
       });
       return request;
     }
@@ -242,7 +245,7 @@ if (window.indexedDB.polyfill)
         sqlTx.executeSql("SELECT [value] FROM [" + me.name + "] " + where + " LIMIT 1", args,
           function (_, results) {
             util.fireSuccessEvent(request, results.rows.length > 0 ?
-              w_JSON.parse(results.rows.item(0).value) : undefined)
+              idbModules.Sca.decode(results.rows.item(0).value) : undefined)
           },
           function (_, error) {
             util.fireErrorEvent(request, error);
@@ -387,9 +390,8 @@ if (window.indexedDB.polyfill)
           });
       }
       var me = this;
-      var encodedValue = w_JSON.stringify(context.value);
       context.sqlTx.executeSql("INSERT INTO [" + me.name + "] (key, value) VALUES (X'" + context.encodedKey + "', ?)",
-        [encodedValue],
+        [context.encodedValue],
         function (sqlTx, results) {
           request.result =
             context.objectStore = me;

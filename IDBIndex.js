@@ -51,7 +51,7 @@ if (window.indexedDB.polyfill)
         sqlTx.executeSql(sql.join(" "), null,
           function (_, results) {
             util.fireSuccessEvent(request, results.rows.length > 0 ?
-              w_JSON.parse(results.rows.item(0).value) : undefined)
+              idbModules.Sca.decode(results.rows.item(0).value) : undefined)
           },
           function (_, error) {
             util.fireErrorEvent(request, error);
