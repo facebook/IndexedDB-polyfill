@@ -38,7 +38,7 @@ To force using polyfill append the following script before including the polyfil
 
 >window.indexedDB = { polyfill : true };
 
-###3. Unit Tests
+### 3. Unit Tests
 
 To run unit tests open _index.html_ in target browser. To verify unit tests against Firefox's native implementation of IndexedDB API, open the same page through web (http) server. Because, otherwise Firefox does not let to create IndexedDB databases under localhost origin.
 
